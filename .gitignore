@@ -1,7 +1,0 @@
-instance/
-storage/
-__pycache__/
-*.pyc
-.env
-CLAUDE.md
-.claude
