@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Link Ready — Secure File Drop</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="card">
+
+    <!-- Logo -->
+    <div class="logo">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none"
+           stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <span class="logo-text">Secure <span>File Drop</span></span>
+    </div>
+
+    <h1>Your link is ready</h1>
+    <p class="subtitle">Share this link with your recipient. It will expire as configured.</p>
+
+    <!-- Share link -->
+    <div class="link-box">
+      <input type="text" id="share-link" value="{{ share_url }}" readonly />
+      <button class="copy-btn" id="copy-btn" onclick="copyLink()">Copy</button>
+    </div>
+
+    <!-- File details -->
+    <ul class="meta-list">
+      <li>
+        <span class="key">File</span>
+        <span class="val">{{ original_filename }}</span>
+      </li>
+      <li>
+        <span class="key">Size</span>
+        <span class="val">{{ file_size }}</span>
+      </li>
+      <li>
+        <span class="key">Expires</span>
+        <span class="val">{{ expires_at }}</span>
+      </li>
+      <li>
+        <span class="key">One-time download</span>
+        <span class="val">
+          {% if one_time_download %}
+            <span class="badge badge-success">Yes</span>
+          {% else %}
+            <span class="badge badge-muted">No</span>
+          {% endif %}
+        </span>
+      </li>
+      <li>
+        <span class="key">Passcode protected</span>
+        <span class="val">
+          {% if passcode_set %}
+            <span class="badge badge-success">Yes</span>
+          {% else %}
+            <span class="badge badge-muted">No</span>
+          {% endif %}
+        </span>
+      </li>
+    </ul>
+
+    <a href="/" class="btn btn-ghost">Upload another file</a>
+
+  </div>
+
+  <script>
+    function copyLink() {
+      const input = document.getElementById('share-link');
+      const btn = document.getElementById('copy-btn');
+      navigator.clipboard.writeText(input.value).then(() => {
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.textContent = 'Copy';
+          btn.classList.remove('copied');
+        }, 2000);
+      }).catch(() => {
+        input.select();
+        document.execCommand('copy');
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.textContent = 'Copy';
+          btn.classList.remove('copied');
+        }, 2000);
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Secure File Drop</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="card">
+
+    <!-- Logo -->
+    <div class="logo">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none"
+           stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+        <polyline points="17 8 12 3 7 8"/>
+        <line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+      <span class="logo-text">Secure <span>File Drop</span></span>
+    </div>
+
+    <h1>Share a file securely</h1>
+    <p class="subtitle">Upload a file, set an expiration, and get a one-time share link.</p>
+
+    <form id="upload-form" action="/upload" method="post" enctype="multipart/form-data">
+
+      <!-- File picker -->
+      <div class="form-group">
+        <label>File</label>
+        <div class="drop-zone" id="drop-zone">
+          <input type="file" name="file" id="file-input" required />
+          <div class="drop-icon">&#128196;</div>
+          <div class="drop-label"><strong>Choose a file</strong> or drag it here</div>
+          <div class="file-chosen" id="file-chosen"></div>
+        </div>
+      </div>
+
+      <!-- Expiration -->
+      <div class="form-group">
+        <label for="expires_in">Link expires in</label>
+        <select name="expires_in" id="expires_in">
+          <option value="1">1 hour</option>
+          <option value="6">6 hours</option>
+          <option value="24" selected>24 hours</option>
+          <option value="72">3 days</option>
+          <option value="168">7 days</option>
+        </select>
+      </div>
+
+      <!-- One-time download toggle -->
+      <div class="form-group">
+        <div class="toggle-row">
+          <div>
+            <div class="toggle-label">One-time download</div>
+            <div class="toggle-desc">Link expires after the first download</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" name="one_time_download" id="one_time_download" value="1" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Passcode (optional) -->
+      <div class="form-group">
+        <label for="passcode">Passcode <span style="color:var(--muted);font-weight:400;text-transform:none">(optional)</span></label>
+        <input type="password" name="passcode" id="passcode"
+               placeholder="Leave blank for no passcode" autocomplete="new-password" />
+      </div>
+
+      <button type="submit" class="btn btn-primary" id="submit-btn">
+        <span class="btn-text">Generate share link</span>
+        <span class="spinner"></span>
+      </button>
+
+    </form>
+  </div>
+
+  <script>
+    // File input label
+    const fileInput = document.getElementById('file-input');
+    const fileChosen = document.getElementById('file-chosen');
+    const dropZone = document.getElementById('drop-zone');
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length) {
+        fileChosen.textContent = fileInput.files[0].name;
+      }
+    });
+
+    // Drag-and-drop visual feedback
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      if (e.dataTransfer.files.length) {
+        fileInput.files = e.dataTransfer.files;
+        fileChosen.textContent = e.dataTransfer.files[0].name;
+      }
+    });
+
+    // Loading state on submit
+    document.getElementById('upload-form').addEventListener('submit', function () {
+      const btn = document.getElementById('submit-btn');
+      btn.classList.add('loading');
+      btn.disabled = true;
+    });
+  </script>
+</body>
+</html>
