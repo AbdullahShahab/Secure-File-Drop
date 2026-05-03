@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS files (
     one_time_download BOOLEAN DEFAULT 0,
     is_used           BOOLEAN DEFAULT 0,
     expires_at        DATETIME NOT NULL,
-    created_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+    sender_email      TEXT
 );
 """
 
@@ -30,4 +31,8 @@ def get_connection():
 def init_db():
     with get_connection() as conn:
         conn.execute(CREATE_FILES_TABLE)
+        # Migrate existing databases that pre-date the sender_email column
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(files)")}
+        if "sender_email" not in existing:
+            conn.execute("ALTER TABLE files ADD COLUMN sender_email TEXT")
         conn.commit()

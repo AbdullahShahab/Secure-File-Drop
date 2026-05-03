@@ -3,3 +3,6 @@ uvicorn
 python-multipart
 bcrypt
 jinja2
+cryptography
+python-dotenv
+apscheduler

@@ -34,6 +34,10 @@
           <div class="drop-label"><strong>Choose a file</strong> or drag it here</div>
           <div class="file-chosen" id="file-chosen"></div>
         </div>
+        <p id="file-error" style="display:none;margin-top:.5rem;font-size:.85rem;color:var(--danger);"></p>
+        <p style="margin-top:.5rem;font-size:.8rem;color:var(--muted);">
+          Upload up to 100 MB &middot; PDF, DOCX, XLSX, PPTX, JPG, PNG, TXT, ZIP
+        </p>
       </div>
 
       <!-- Expiration -->
@@ -69,6 +73,16 @@
                placeholder="Leave blank for no passcode" autocomplete="new-password" />
       </div>
 
+      <!-- Sender email (optional) -->
+      <div class="form-group">
+        <label for="sender_email">Your email <span style="color:var(--muted);font-weight:400;text-transform:none">(optional)</span></label>
+        <input type="email" name="sender_email" id="sender_email"
+               placeholder="you@example.com" autocomplete="email" />
+        <p style="margin-top:.4rem;font-size:.8rem;color:var(--muted);">
+          We'll notify you when your file is downloaded.
+        </p>
+      </div>
+
       <button type="submit" class="btn btn-primary" id="submit-btn">
         <span class="btn-text">Generate share link</span>
         <span class="spinner"></span>
@@ -78,15 +92,69 @@
   </div>
 
   <script>
-    // File input label
-    const fileInput = document.getElementById('file-input');
+    const ALLOWED_TYPES = new Set([
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'image/jpeg',
+      'image/png',
+      'text/plain',
+      'application/zip',
+    ]);
+    const ALLOWED_EXTS = new Set(['.pdf','.docx','.xlsx','.pptx','.jpg','.jpeg','.png','.txt','.zip']);
+    const MAX_BYTES = 100 * 1024 * 1024; // 100 MB
+
+    const fileInput  = document.getElementById('file-input');
     const fileChosen = document.getElementById('file-chosen');
-    const dropZone = document.getElementById('drop-zone');
+    const dropZone   = document.getElementById('drop-zone');
+    const fileError  = document.getElementById('file-error');
+
+    function getExt(name) {
+      const idx = name.lastIndexOf('.');
+      return idx === -1 ? '' : name.slice(idx).toLowerCase();
+    }
+
+    function validateFile(file) {
+      if (!file) return null;
+      const ext = getExt(file.name);
+      // Accept if MIME type matches OR extension matches (browser MIME can be empty for some types)
+      const typeOk = ALLOWED_TYPES.has(file.type) || ALLOWED_EXTS.has(ext);
+      if (!typeOk) {
+        return `File type not allowed. Accepted: PDF, DOCX, XLSX, PPTX, JPG, PNG, TXT, ZIP.`;
+      }
+      if (file.size > MAX_BYTES) {
+        return `File is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum is 100 MB.`;
+      }
+      return null; // valid
+    }
+
+    function showError(msg) {
+      fileError.textContent = msg;
+      fileError.style.display = 'block';
+      dropZone.style.borderColor = 'var(--danger)';
+    }
+
+    function clearError() {
+      fileError.textContent = '';
+      fileError.style.display = 'none';
+      dropZone.style.borderColor = '';
+    }
+
+    function handleFileSelected(file) {
+      clearError();
+      const err = validateFile(file);
+      if (err) {
+        showError(err);
+        fileChosen.textContent = '';
+        fileInput.value = '';
+      } else {
+        fileChosen.textContent = `${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+      }
+    }
 
     fileInput.addEventListener('change', () => {
-      if (fileInput.files.length) {
-        fileChosen.textContent = fileInput.files[0].name;
-      }
+      if (fileInput.files.length) handleFileSelected(fileInput.files[0]);
     });
 
     // Drag-and-drop visual feedback
@@ -96,13 +164,27 @@
       e.preventDefault();
       dropZone.classList.remove('dragover');
       if (e.dataTransfer.files.length) {
-        fileInput.files = e.dataTransfer.files;
-        fileChosen.textContent = e.dataTransfer.files[0].name;
+        // DataTransfer → file input (where supported)
+        try { fileInput.files = e.dataTransfer.files; } catch (_) {}
+        handleFileSelected(e.dataTransfer.files[0]);
       }
     });
 
-    // Loading state on submit
-    document.getElementById('upload-form').addEventListener('submit', function () {
+    // Block submission if validation fails
+    document.getElementById('upload-form').addEventListener('submit', function (e) {
+      clearError();
+      const file = fileInput.files[0];
+      if (!file) {
+        e.preventDefault();
+        showError('Please choose a file before uploading.');
+        return;
+      }
+      const err = validateFile(file);
+      if (err) {
+        e.preventDefault();
+        showError(err);
+        return;
+      }
       const btn = document.getElementById('submit-btn');
       btn.classList.add('loading');
       btn.disabled = true;

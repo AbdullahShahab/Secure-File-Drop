@@ -4,11 +4,12 @@ import bcrypt
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Request, UploadFile, File, Form
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Request, UploadFile, File, Form, HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from .database import get_connection
+from .utils import get_fernet, send_download_notification
 
 BASE_DIR = os.path.dirname(__file__)
 STORAGE_DIR = os.path.join(BASE_DIR, "..", "storage")
@@ -17,6 +18,21 @@ os.makedirs(STORAGE_DIR, exist_ok=True)
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 router = APIRouter()
+
+# ── Validation constants ────────────────────────────────────────────────────
+
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB
+
+ALLOWED_MIME_TYPES = {
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "image/jpeg",
+    "image/png",
+    "text/plain",
+    "application/zip",
+}
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -47,17 +63,37 @@ async def upload(
     expires_in: int = Form(24),
     one_time_download: str = Form(None),
     passcode: str = Form(""),
+    sender_email: str = Form(""),
 ):
     contents = await file.read()
     file_size = len(contents)
+
+    # ── Server-side validation (never rely on frontend alone) ──────────────
+    if file.content_type not in ALLOWED_MIME_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"File type '{file.content_type}' is not allowed. "
+                "Accepted types: PDF, DOCX, XLSX, PPTX, JPG, PNG, TXT, ZIP."
+            ),
+        )
+    if file_size > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"File size ({file_size / 1024 / 1024:.1f} MB) exceeds the 100 MB limit."
+            ),
+        )
+    # ──────────────────────────────────────────────────────────────────────
 
     token = secrets.token_urlsafe(32)
     ext = Path(file.filename).suffix
     stored_filename = f"{token}{ext}"
     dest = os.path.join(STORAGE_DIR, stored_filename)
 
+    encrypted = get_fernet().encrypt(contents)
     with open(dest, "wb") as f:
-        f.write(contents)
+        f.write(encrypted)
 
     passcode_hash = None
     if passcode:
@@ -66,13 +102,15 @@ async def upload(
     one_time = 1 if one_time_download == "1" else 0
     expires_at = datetime.utcnow() + timedelta(hours=expires_in)
 
+    email_to_store = sender_email.strip() or None
+
     with get_connection() as conn:
         conn.execute(
             """
             INSERT INTO files
               (stored_filename, original_filename, file_size, file_type,
-               token, passcode_hash, one_time_download, expires_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+               token, passcode_hash, one_time_download, expires_at, sender_email)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 stored_filename,
@@ -83,6 +121,7 @@ async def upload(
                 passcode_hash,
                 one_time,
                 expires_at.isoformat(),
+                email_to_store,
             ),
         )
         conn.commit()
@@ -163,8 +202,26 @@ def _serve_file(row):
             conn.execute("UPDATE files SET is_used = 1 WHERE token = ?", (row["token"],))
             conn.commit()
 
-    return FileResponse(
-        path=file_path,
-        filename=row["original_filename"],
+    with open(file_path, "rb") as f:
+        encrypted = f.read()
+
+    decrypted = get_fernet().decrypt(encrypted)
+    downloaded_at = datetime.utcnow()
+
+    # Fire-and-forget email — never blocks or crashes the download
+    if row["sender_email"]:
+        send_download_notification(
+            sender_email=row["sender_email"],
+            original_filename=row["original_filename"],
+            downloaded_at=downloaded_at,
+        )
+
+    filename_safe = row["original_filename"].replace('"', '\\"')
+    return StreamingResponse(
+        iter([decrypted]),
         media_type=row["file_type"] or "application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename_safe}"',
+            "Content-Length": str(len(decrypted)),
+        },
     )
