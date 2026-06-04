@@ -1,13 +1,13 @@
 import os
-import smtplib
-import ssl
-from email.message import EmailMessage
+import requests
 from datetime import datetime
 
 from cryptography.fernet import Fernet
 from dotenv import load_dotenv
 
-load_dotenv()  # pulls GMAIL_USER / GMAIL_APP_PASSWORD from .env into os.environ
+# Resolve .env relative to the project root (one level above src/)
+_ENV_PATH = os.path.join(os.path.dirname(__file__), "..", ".env")
+load_dotenv(dotenv_path=_ENV_PATH)
 
 # secret.key lives in the project root (one level above src/)
 KEY_PATH = os.path.join(os.path.dirname(__file__), "..", "secret.key")
@@ -31,42 +31,40 @@ def get_fernet() -> Fernet:
     return Fernet(_load_or_create_key())
 
 
-# ── Email notification ─────────────────────────────────────────────────────
+# ── Download webhook ───────────────────────────────────────────────────────
 
-def send_download_notification(
-    sender_email: str,
-    original_filename: str,
+def fire_download_webhook(
+    recipient_email: str,
+    filename: str,
     downloaded_at: datetime,
 ) -> None:
     """
-    Send a plain-text notification to sender_email confirming their file
-    was downloaded. Swallows all exceptions so a broken SMTP config never
-    crashes the download response.
+    POST to the Node webhook service to trigger a download notification email.
+    Never raises — all failures are printed and the download response is unaffected.
     """
-    gmail_user = os.environ.get("GMAIL_USER", "").strip()
-    gmail_password = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
+    load_dotenv(dotenv_path=_ENV_PATH, override=True)
 
-    if not gmail_user or not gmail_password:
-        print("[email] Warning: GMAIL_USER or GMAIL_APP_PASSWORD not set — skipping notification.")
+    webhook_url    = os.environ.get("WEBHOOK_URL", "http://localhost:3001/notify").strip()
+    webhook_secret = os.environ.get("WEBHOOK_SECRET", "").strip()
+
+    if not webhook_secret:
+        print("[webhook] Warning: WEBHOOK_SECRET not set — skipping notification.")
         return
 
-    downloaded_str = downloaded_at.strftime("%B %d, %Y at %I:%M %p UTC")
-
-    msg = EmailMessage()
-    msg["Subject"] = "Your file was downloaded — Secure File Drop"
-    msg["From"] = gmail_user
-    msg["To"] = sender_email
-    msg.set_content(
-        f"Hi,\n\n"
-        f"Your file \"{original_filename}\" was downloaded on {downloaded_str}.\n\n"
-        f"If you did not expect this, your share link may have been forwarded.\n\n"
-        f"— Secure File Drop"
-    )
+    payload = {
+        "recipient_email": recipient_email,
+        "filename":        filename,
+        "downloaded_at":   downloaded_at.strftime("%Y-%m-%d %H:%M:%S"),
+    }
 
     try:
-        context = ssl.create_default_context()
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
-            server.login(gmail_user, gmail_password)
-            server.send_message(msg)
-    except Exception as exc:
-        print(f"[email] Warning: failed to send download notification — {exc}")
+        response = requests.post(
+            webhook_url,
+            json=payload,
+            headers={"Authorization": f"Bearer {webhook_secret}"},
+            timeout=5,
+        )
+        response.raise_for_status()
+        print(f"[webhook] Webhook fired successfully → {response.json()}")
+    except Exception as e:
+        print(f"[webhook] Warning: webhook call failed — {e}")

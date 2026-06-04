@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from .database import get_connection
-from .utils import get_fernet, send_download_notification
+from .utils import get_fernet, fire_download_webhook
 
 BASE_DIR = os.path.dirname(__file__)
 STORAGE_DIR = os.path.join(BASE_DIR, "..", "storage")
@@ -208,11 +208,11 @@ def _serve_file(row):
     decrypted = get_fernet().decrypt(encrypted)
     downloaded_at = datetime.utcnow()
 
-    # Fire-and-forget email — never blocks or crashes the download
-    if row["sender_email"]:
-        send_download_notification(
-            sender_email=row["sender_email"],
-            original_filename=row["original_filename"],
+    # Fire-and-forget webhook — never blocks or crashes the download
+    if row["sender_email"] and row["sender_email"].strip():
+        fire_download_webhook(
+            recipient_email=row["sender_email"],
+            filename=row["original_filename"],
             downloaded_at=downloaded_at,
         )
 
