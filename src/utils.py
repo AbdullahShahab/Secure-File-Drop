@@ -1,5 +1,5 @@
 import os
-import requests
+import resend
 from datetime import datetime
 
 from cryptography.fernet import Fernet
@@ -14,12 +14,15 @@ KEY_PATH = os.path.join(os.path.dirname(__file__), "..", "secret.key")
 
 
 def _load_or_create_key() -> bytes:
-    """Return the Fernet key, generating and persisting one if it does not exist."""
+    # Prefer env var so the key survives container restarts/redeploys (e.g. Railway)
+    env_key = os.environ.get("FERNET_KEY", "").strip()
+    if env_key:
+        return env_key.encode()
+
     key_path = os.path.abspath(KEY_PATH)
     if os.path.exists(key_path):
         with open(key_path, "rb") as f:
             return f.read().strip()
-    # First run — generate a new key and write it to disk
     key = Fernet.generate_key()
     with open(key_path, "wb") as f:
         f.write(key)
@@ -27,44 +30,41 @@ def _load_or_create_key() -> bytes:
 
 
 def get_fernet() -> Fernet:
-    """Return a ready-to-use Fernet instance backed by the project secret key."""
     return Fernet(_load_or_create_key())
 
 
-# ── Download webhook ───────────────────────────────────────────────────────
+# ── Email notification ─────────────────────────────────────────────────────
 
-def fire_download_webhook(
+def send_download_notification(
     recipient_email: str,
     filename: str,
     downloaded_at: datetime,
 ) -> None:
-    """
-    POST to the Node webhook service to trigger a download notification email.
-    Never raises — all failures are printed and the download response is unaffected.
-    """
+    """Send a download notification email via Resend. Never raises."""
     load_dotenv(dotenv_path=_ENV_PATH, override=True)
 
-    webhook_url    = os.environ.get("WEBHOOK_URL", "http://localhost:3001/notify").strip()
-    webhook_secret = os.environ.get("WEBHOOK_SECRET", "").strip()
+    api_key = os.environ.get("RESEND_API_KEY", "").strip()
+    from_address = os.environ.get("RESEND_FROM", "Secure File Drop <noreply@resend.dev>").strip()
 
-    if not webhook_secret:
-        print("[webhook] Warning: WEBHOOK_SECRET not set — skipping notification.")
+    if not api_key:
+        print("[email] Warning: RESEND_API_KEY not set — skipping notification.")
         return
 
-    payload = {
-        "recipient_email": recipient_email,
-        "filename":        filename,
-        "downloaded_at":   downloaded_at.strftime("%Y-%m-%d %H:%M:%S"),
-    }
+    resend.api_key = api_key
+
+    timestamp = downloaded_at.strftime("%B %d, %Y at %I:%M %p UTC")
 
     try:
-        response = requests.post(
-            webhook_url,
-            json=payload,
-            headers={"Authorization": f"Bearer {webhook_secret}"},
-            timeout=5,
-        )
-        response.raise_for_status()
-        print(f"[webhook] Webhook fired successfully → {response.json()}")
+        resend.Emails.send({
+            "from": from_address,
+            "to": [recipient_email],
+            "subject": f"Your file \"{filename}\" was downloaded",
+            "html": (
+                f"<p>Hi,</p>"
+                f"<p>Your file <strong>{filename}</strong> was downloaded on {timestamp}.</p>"
+                f"<p>— Secure File Drop</p>"
+            ),
+        })
+        print(f"[email] Notification sent to {recipient_email} for '{filename}'.")
     except Exception as e:
-        print(f"[webhook] Warning: webhook call failed — {e}")
+        print(f"[email] Warning: failed to send notification — {e}")
